@@ -29,6 +29,57 @@ MILESTONES = (
     ("inheritance", "Create a team file with inherited group ownership"),
 )
 
+STUDENT_GUIDE = """Linux permissions CTF
+
+Read this guide with: cat ~/linux-permissions-ctf/INSTRUCTIONS.txt
+
+This lab practices Linux users, groups, and file permissions. After completing
+each task, check it and copy the flag from the output:
+
+  sudo python3 ~/linux-permissions-ctf/linux_permissions_ctf.py check MILESTONE
+
+Replace MILESTONE with the ID shown below. List all IDs with:
+
+  python3 ~/linux-permissions-ctf/linux_permissions_ctf.py list
+
+Use your own login and home directory for the participant. In your shell, run:
+
+  LAB_USER=$(whoami)
+  PROJECT="$HOME/project"
+  export PROJECT
+
+1. account: Create user jack with a home directory, a same-named primary group,
+   and /bin/bash as the login shell. Check account.
+2. groups: Create developers; append jack to developers and sudo, and append
+   $LAB_USER to developers. Check groups. Existing shells do not automatically
+   acquire new group memberships.
+3. report: Create $PROJECT/secure-report.txt, owned by jack:developers with
+   mode 640. Check report.
+4. lock: Lock password authentication for contractor with usermod -L; check lock.
+5. unlock: Unlock it with usermod -U; check unlock.
+6. final-lock: Lock it again and check final-lock. Do not display the password hash.
+7. umask: Create $PROJECT/umask-demo, save your current umask, set it to 027,
+   and create private-note.txt and private-dir inside it. Restore your original
+   umask. The file and directory should have modes 640 and 750. Check umask.
+8. sticky: Create /tmp/shared-dropbox with mode 1777. Create jack-note.txt as
+   jack and contractor-note.txt as contractor. As jack, try to remove the
+   contractor's file; it should be denied. Check sticky.
+9. setgid: Create $PROJECT/team-share, owned by jack:developers, with mode
+   2770. Check setgid.
+10. inheritance: Start a child shell with newgrp developers, then create
+    $PROJECT/team-share/labex-note.txt as the participant. It should belong to
+    the participant and group developers. Check inheritance, then exit the child
+    shell. If newgrp asks for a password, cancel and check your group membership.
+
+The lock, unlock, and final-lock checks must be completed in that order before
+changing the account state again. Rechecking a completed milestone still requires
+its current state to match. A failed check describes the required state without
+revealing the flag.
+
+You can use sudo -u contractor to create a file even while contractor password
+authentication is locked. Use stat, id, and groups to inspect results.
+"""
+
 
 class LabError(Exception):
     pass
@@ -212,7 +263,10 @@ def install(user):
     project = Path(entry.pw_dir) / "project"
     if project.exists():
         raise LabError(f"{project} already exists; use a fresh, disposable VM.")
-    for command in ("useradd", "chpasswd"):
+    materials = Path(entry.pw_dir) / "linux-permissions-ctf"
+    if materials.exists() or materials.is_symlink():
+        raise LabError(f"{materials} already exists; refusing to overwrite it.")
+    for command in ("useradd", "usermod", "chpasswd"):
         if not shutil.which(command):
             raise LabError(f"Required command not found: {command}")
 
@@ -232,8 +286,17 @@ def install(user):
         run_command(["useradd", "-m", "-U", "-d", "/home/contractor", "-s", "/bin/bash", "contractor"])
         # A random, undisclosed password gives the account a lockable password hash.
         run_command(["chpasswd"], f"contractor:{secrets.token_hex(32)}\n")
+        run_command(["usermod", "-a", "-G", "sudo", "--", user])
         project.mkdir(mode=0o755)
         os.chown(project, entry.pw_uid, entry.pw_gid)
+        materials.mkdir(mode=0o755)
+        materials.chmod(0o755)
+        checker = materials / "linux_permissions_ctf.py"
+        shutil.copyfile(Path(__file__).resolve(), checker)
+        checker.chmod(0o644)
+        instructions = materials / "INSTRUCTIONS.txt"
+        instructions.write_text(STUDENT_GUIDE, encoding="utf-8")
+        instructions.chmod(0o644)
         lab["installed"] = True
         save_lab(lab)
     except (OSError, LabError) as exc:
@@ -242,7 +305,9 @@ def install(user):
             "inspect it or replace the disposable VM before retrying."
         ) from exc
     print(f"Installed lab {lab['lab_id']} for {user}. Project: {project}")
-    print("Export the answer key privately, then follow the README.")
+    print(f"Log in again as {user} to activate sudo group membership.")
+    print("Export the answer key privately. The participant can read instructions with:")
+    print("  cat ~/linux-permissions-ctf/INSTRUCTIONS.txt")
 
 
 def main(argv=None):
